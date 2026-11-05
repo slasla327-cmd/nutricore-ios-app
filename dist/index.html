@@ -1,0 +1,1146 @@
+<!DOCTYPE html>
+<html lang="ru" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>NutriCore</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="bg-[#09090B] text-zinc-100 min-h-screen">
+  <div id="root"></div>
+  <script type="text/babel">
+
+    const { useState, useMemo, useEffect } = React;
+
+    // 1. БАЗА ОТСЛЕЖИВАЕМЫХ НУТРИЕНТОВ (РСП и Верхний предел UL)
+    const NUTRIENT_DEFS = [
+      // Углеводы и клетчатка
+      { id: 'fiber', name: 'Клетчатка (пищевые волокна)', category: 'fiber', rda: 30, ul: 55, unit: 'г', desc: 'Микробиом и пищеварение' },
+      // Витамины
+      { id: 'vit_a', name: 'Витамин A (Ретинол)', category: 'vitamin', rda: 900, ul: 3000, unit: 'мкг', desc: 'Зрение, кожа, слизистые' },
+      { id: 'vit_c', name: 'Витамин C', category: 'vitamin', rda: 90, ul: 2000, unit: 'мг', desc: 'Иммунитет, сосуды, коллаген' },
+      { id: 'vit_d', name: 'Витамин D3', category: 'vitamin', rda: 15, ul: 100, unit: 'мкг', desc: 'Усвоение кальция и иммунитет' },
+      { id: 'vit_e', name: 'Витамин E', category: 'vitamin', rda: 15, ul: 300, unit: 'мг', desc: 'Защита клеточных мембран' },
+      { id: 'vit_k', name: 'Витамин K', category: 'vitamin', rda: 120, ul: 1000, unit: 'мкг', desc: 'Свертываемость крови и кости' },
+      { id: 'vit_b1', name: 'Витамин B1 (Тиамин)', category: 'vitamin', rda: 1.5, ul: 50, unit: 'мг', desc: 'Углеводный обмен и энергия' },
+      { id: 'vit_b2', name: 'Витамин B2 (Рибофлавин)', category: 'vitamin', rda: 1.8, ul: 50, unit: 'мг', desc: 'Клеточное дыхание' },
+      { id: 'vit_b6', name: 'Витамин B6 (Пиридоксин)', category: 'vitamin', rda: 2.0, ul: 25, unit: 'мг', desc: 'Нервная система и белковый обмен' },
+      { id: 'vit_b9', name: 'Витамин B9 (Фолаты)', category: 'vitamin', rda: 400, ul: 1000, unit: 'мкг', desc: 'Кроветворение и синтез ДНК' },
+      { id: 'vit_b12', name: 'Витамин B12 (Кобаламин)', category: 'vitamin', rda: 3.0, ul: 100, unit: 'мкг', desc: 'Миелиновые оболочки нервов' },
+      // Минералы
+      { id: 'ca', name: 'Кальций (Ca)', category: 'mineral', rda: 1000, ul: 2500, unit: 'мг', desc: 'Прочность костей и зубов' },
+      { id: 'mg', name: 'Магний (Mg)', category: 'mineral', rda: 400, ul: 750, unit: 'мг', desc: 'Мышцы, сон и антистресс' },
+      { id: 'k', name: 'Калий (K)', category: 'mineral', rda: 3500, ul: 6000, unit: 'мг', desc: 'Сердце и выведение лишней воды' },
+      { id: 'na', name: 'Натрий (Na / Соль)', category: 'mineral', rda: 1500, ul: 2300, unit: 'мг', isLimit: true, desc: 'Водно-солевой баланс (контроль отеков)' },
+      { id: 'fe', name: 'Железо (Fe)', category: 'mineral', rda: 14, ul: 45, unit: 'мг', desc: 'Гемоглобин и транспорт кислорода' },
+      { id: 'zn', name: 'Цинк (Zn)', category: 'mineral', rda: 12, ul: 40, unit: 'мг', desc: 'Иммунитет, гормоны и кожа' },
+      { id: 'se', name: 'Селен (Se)', category: 'mineral', rda: 70, ul: 300, unit: 'мкг', desc: 'Щитовидная железа и антиоксидант' },
+      { id: 'i', name: 'Йод (I)', category: 'mineral', rda: 150, ul: 600, unit: 'мкг', desc: 'Гормоны щитовидной железы' },
+      // Жирные кислоты
+      { id: 'omega3', name: 'Омега-3 (ЭПК+ДГК)', category: 'lipid', rda: 1.5, ul: 5.0, unit: 'г', desc: 'Здоровье сосудов и мозга' }
+    ];
+
+    // 2. СПОСОБЫ ГОТОВКИ И СОХРАННОСТЬ ВИТАМИНОВ
+    const COOKING_METHODS = [
+      { id: 'raw', name: 'Сырой / Готовый', vitFactor: 1.0 },
+      { id: 'steamed', name: 'На пару (-15% вит.)', vitFactor: 0.85 },
+      { id: 'boiled', name: 'Варка (-35% вит.)', vitFactor: 0.65 },
+      { id: 'baked', name: 'Запекание (-25% вит.)', vitFactor: 0.75 },
+      { id: 'fried', name: 'Жарка (-45% вит.)', vitFactor: 0.55 }
+    ];
+
+    // 3. ГИБРИДНАЯ БАЗА ПРОДУКТОВ (Бренды + Скурихин / USDA + Вода в продуктах)
+    const FOODS_DB = [
+      {
+        id: 'tvorog_savushkin_5',
+        name: 'Творог Савушкин 5%',
+        brand: 'Савушкин Продукт',
+        barcode: '4810268025419',
+        mappedFrom: 'Творог 5% (Скурихин)',
+        kcal: 121, protein: 17.2, fat: 5.0, carbs: 1.8, water_g: 74,
+        portions: [{ label: '1 пачка (180г)', grams: 180 }, { label: '100г', grams: 100 }],
+        nutrients: { ca: 164, mg: 23, k: 112, na: 41, zn: 0.4, se: 14.5, vit_a: 45, vit_b2: 0.27, vit_b12: 1.3 }
+      },
+      {
+        id: 'buckwheat_mistral',
+        name: 'Гречка ядрица Мистраль (в вареном виде)',
+        brand: 'Мистраль',
+        barcode: '4601916001028',
+        mappedFrom: 'Каша гречневая рассыпчатая (Скурихин)',
+        kcal: 110, protein: 4.2, fat: 1.1, carbs: 21.3, water_g: 72,
+        portions: [{ label: 'Гарнир (200г)', grams: 200 }, { label: '100г', grams: 100 }],
+        nutrients: { fiber: 3.7, mg: 85, k: 160, fe: 2.8, zn: 0.9, se: 4.2, vit_b1: 0.18, vit_b2: 0.08, vit_b6: 0.16, vit_b9: 14 }
+      },
+      {
+        id: 'salmon_salted',
+        name: 'Лосось / Семга слабосоленая Меридиан',
+        brand: 'Меридиан',
+        barcode: '4601132991222',
+        mappedFrom: 'Семга с/с (Скурихин / USDA)',
+        kcal: 202, protein: 21.5, fat: 13.0, carbs: 0, water_g: 62,
+        portions: [{ label: '2 ломтика (60г)', grams: 60 }, { label: 'Упаковка (120г)', grams: 120 }],
+        nutrients: { omega3: 2.4, vit_d: 14.2, vit_b12: 3.8, vit_b6: 0.7, se: 38, i: 50, na: 1450, k: 340, mg: 29 }
+      },
+      {
+        id: 'cod_liver',
+        name: 'Печень трески натуральная (консервы)',
+        brand: 'Мурманрыбпром',
+        barcode: '4607055680112',
+        mappedFrom: 'Печень трески ГОСТ (Скурихин)',
+        kcal: 613, protein: 4.2, fat: 65.7, carbs: 1.2, water_g: 26,
+        portions: [{ label: 'Бутерброд (35г)', grams: 35 }, { label: 'Полбанки (90г)', grams: 90 }],
+        nutrients: { vit_a: 4400, vit_d: 100, vit_e: 8.8, omega3: 11.5, fe: 1.9, zn: 1.4, i: 350, na: 580 }
+      },
+      {
+        id: 'kiwi_fresh',
+        name: 'Киви свежий',
+        brand: 'Базовый продукт',
+        barcode: null,
+        mappedFrom: 'USDA Foundation',
+        kcal: 61, protein: 1.1, fat: 0.5, carbs: 14.7, water_g: 83,
+        portions: [{ label: '1 шт (85г)', grams: 85 }, { label: '2 шт (170г)', grams: 170 }],
+        nutrients: { fiber: 3.0, vit_c: 92.7, vit_k: 40.3, vit_e: 1.5, k: 312, mg: 17, vit_b9: 25 }
+      },
+      {
+        id: 'spinach_fresh',
+        name: 'Шпинат свежий (листья)',
+        brand: 'ВкусВилл',
+        barcode: '4620014089110',
+        mappedFrom: 'Шпинат зелень (USDA / Скурихин)',
+        kcal: 23, protein: 2.9, fat: 0.4, carbs: 3.6, water_g: 91,
+        portions: [{ label: 'Пучок в салат (70г)', grams: 70 }, { label: 'Упаковка (125г)', grams: 125 }],
+        nutrients: { fiber: 2.2, vit_k: 483, vit_a: 469, vit_c: 28, vit_b9: 194, mg: 79, k: 558, fe: 2.7, ca: 99 }
+      },
+      {
+        id: 'pumpkin_seeds',
+        name: 'Семечки тыквенные очищенные',
+        brand: 'ВкусВилл',
+        barcode: '4620011223344',
+        mappedFrom: 'Семена тыквы (USDA)',
+        kcal: 559, protein: 30.2, fat: 49.1, carbs: 10.7, water_g: 5,
+        portions: [{ label: 'Горсть (30г)', grams: 30 }, { label: '1 ст. л. (15г)', grams: 15 }],
+        nutrients: { fiber: 6.0, mg: 592, zn: 7.8, fe: 8.8, k: 809, se: 9.4, vit_e: 2.2 }
+      },
+      {
+        id: 'eggs_boiled',
+        name: 'Яйцо куриное С0',
+        brand: 'Окское',
+        barcode: '4607012345678',
+        mappedFrom: 'Яйцо куриное (Скурихин)',
+        kcal: 157, protein: 12.7, fat: 11.5, carbs: 0.7, water_g: 74,
+        portions: [{ label: '2 яйца (120г)', grams: 120 }, { label: '1 яйцо (60г)', grams: 60 }],
+        nutrients: { vit_a: 260, vit_d: 2.2, vit_b12: 0.52, vit_b2: 0.44, se: 31.7, fe: 2.5, zn: 1.1, i: 20, na: 134 }
+      },
+      {
+        id: 'cucumber',
+        name: 'Огурцы грунтовые свежие',
+        brand: 'Базовый продукт',
+        barcode: null,
+        mappedFrom: 'Огурцы грунтовые (Скурихин)',
+        kcal: 14, protein: 0.8, fat: 0.1, carbs: 2.5, water_g: 95,
+        portions: [{ label: '1 средний (120г)', grams: 120 }, { label: 'В салат (200г)', grams: 200 }],
+        nutrients: { fiber: 0.8, k: 141, mg: 14, vit_k: 16.4, vit_c: 10 }
+      }
+    ];
+
+    const MEALS = [
+      { id: 'breakfast', title: 'Завтрак' },
+      { id: 'lunch', title: 'Обед' },
+      { id: 'dinner', title: 'Ужин' },
+      { id: 'snack', title: 'Перекус / Добавки' }
+    ];
+
+    function App() {
+      // Загрузка из памяти телефона (localStorage), чтобы данные не пропадали
+      const [diary, setDiary] = useState(() => {
+        const saved = localStorage.getItem('nutricore_diary');
+        if (saved) return JSON.parse(saved);
+        return [
+          { id: '1', meal: 'breakfast', foodId: 'tvorog_savushkin_5', grams: 180, cookingId: 'raw' },
+          { id: '2', meal: 'breakfast', foodId: 'kiwi_fresh', grams: 85, cookingId: 'raw' },
+          { id: '3', meal: 'lunch', foodId: 'buckwheat_mistral', grams: 200, cookingId: 'boiled' },
+          { id: '4', meal: 'lunch', foodId: 'salmon_salted', grams: 80, cookingId: 'raw' },
+          { id: '5', meal: 'snack', foodId: 'cod_liver', grams: 40, cookingId: 'raw' }
+        ];
+      });
+
+      const [waterDrank, setWaterDrank] = useState(() => {
+        const saved = localStorage.getItem('nutricore_water');
+        return saved ? Number(saved) : 1250;
+      });
+
+      const [expandedNutrient, setExpandedNutrient] = useState('vit_a');
+      const [expandedCategories, setExpandedCategories] = useState({
+        fiber: true,
+        vitamin: true,
+        mineral: true,
+        lipid: true
+      });
+      const [filterMode, setFilterMode] = useState('all'); // 'all' | 'deficit' | 'warning'
+      const [modalOpen, setModalOpen] = useState(false);
+      const [selectedMeal, setSelectedMeal] = useState('breakfast');
+      const [searchQuery, setSearchQuery] = useState('');
+      const [selectedFood, setSelectedFood] = useState(null);
+      const [inputGrams, setInputGrams] = useState(100);
+      const [inputCooking, setInputCooking] = useState('raw');
+
+      useEffect(() => {
+        localStorage.setItem('nutricore_diary', JSON.stringify(diary));
+      }, [diary]);
+
+      useEffect(() => {
+        localStorage.setItem('nutricore_water', String(waterDrank));
+      }, [waterDrank]);
+
+      // РАСЧЕТ ВСЕХ ПОКАЗАТЕЛЕЙ ЗА ДЕНЬ
+      const stats = useMemo(() => {
+        let kcal = 0, protein = 0, fat = 0, carbs = 0, waterFromFood = 0;
+        const nutTotals = {};
+        const nutSources = {};
+
+        NUTRIENT_DEFS.forEach(n => {
+          nutTotals[n.id] = 0;
+          nutSources[n.id] = [];
+        });
+
+        diary.forEach(entry => {
+          const food = FOODS_DB.find(f => f.id === entry.foodId);
+          if (!food) return;
+          const cooking = COOKING_METHODS.find(c => c.id === entry.cookingId) || COOKING_METHODS[0];
+          const ratio = entry.grams / 100;
+
+          kcal += food.kcal * ratio;
+          protein += food.protein * ratio;
+          fat += food.fat * ratio;
+          carbs += food.carbs * ratio;
+          waterFromFood += (food.water_g || 0) * ratio;
+
+          Object.entries(food.nutrients || {}).forEach(([nId, valPer100]) => {
+            if (nutTotals[nId] === undefined) return;
+            const def = NUTRIENT_DEFS.find(d => d.id === nId);
+            const factor = def?.category === 'vitamin' ? cooking.vitFactor : 1.0;
+            const amount = valPer100 * ratio * factor;
+            if (amount > 0) {
+              nutTotals[nId] += amount;
+              nutSources[nId].push({
+                entryId: entry.id,
+                foodName: food.name,
+                grams: entry.grams,
+                cookingName: cooking.name,
+                amount,
+                factor
+              });
+            }
+          });
+        });
+
+        return { kcal, protein, fat, carbs, waterFromFood, nutTotals, nutSources };
+      }, [diary]);
+
+      // ЦВЕТОВАЯ ЛОГИКА (Серый - набор, Зеленый - норма, Желтый - у верхнего предела, Красный - перебор)
+      const getNutrientStatus = (def, val) => {
+        const pctRda = (val / def.rda) * 100;
+        const pctUl = def.ul ? (val / def.ul) * 100 : 0;
+
+        if (def.ul && val > def.ul) {
+          return {
+            code: 'excess',
+            label: 'Перебор (>UL)',
+            dot: 'bg-[#EF4444]',
+            bar: 'bg-[#EF4444]',
+            badge: 'bg-[#EF4444]/20 text-[#EF4444] border-[#EF4444]/40',
+            text: 'text-[#EF4444]',
+            pctRda
+          };
+        }
+        if (def.ul && pctUl >= 80) {
+          return {
+            code: 'warning',
+            label: 'У верхнего порога',
+            dot: 'bg-[#EAB308]',
+            bar: 'bg-[#EAB308]',
+            badge: 'bg-[#EAB308]/20 text-[#EAB308] border-[#EAB308]/40',
+            text: 'text-[#EAB308]',
+            pctRda
+          };
+        }
+        if (pctRda >= 75) {
+          return {
+            code: 'norm',
+            label: 'Норма',
+            dot: 'bg-[#22C55E]',
+            bar: 'bg-[#22C55E]',
+            badge: 'bg-[#22C55E]/20 text-[#22C55E] border-[#22C55E]/40',
+            text: 'text-[#22C55E]',
+            pctRda
+          };
+        }
+        return {
+          code: 'building',
+          label: 'Идет набор',
+          dot: 'bg-zinc-500',
+          bar: 'bg-zinc-400',
+          badge: 'bg-zinc-800 text-zinc-300 border-zinc-700',
+          text: 'text-zinc-400',
+          pctRda
+        };
+      };
+
+      const addEntry = (foodId, grams, cookingId = 'raw', meal = selectedMeal) => {
+        setDiary(prev => [
+          ...prev,
+          { id: String(Date.now() + Math.random()), meal, foodId, grams: Number(grams), cookingId }
+        ]);
+        setModalOpen(false);
+        setSelectedFood(null);
+      };
+
+      const removeEntry = (id) => {
+        setDiary(prev => prev.filter(item => item.id !== id));
+      };
+
+      const [copiedMsg, setCopiedMsg] = useState('');
+      const [ghModalOpen, setGhModalOpen] = useState(false);
+      const [ghToken, setGhToken] = useState('');
+      const [ghRepo, setGhRepo] = useState('nutricore-ios-app');
+      const [ghStatus, setGhStatus] = useState('');
+      const [ghLoading, setGhLoading] = useState(false);
+      const [ghActionsUrl, setGhActionsUrl] = useState('');
+
+      // Безопасное кодирование текста в Base64 для UTF-8 (без ошибок на русском тексте и эмодзи)
+      const utf8ToBase64 = (str) => {
+        const bytes = new TextEncoder().encode(str);
+        let binary = '';
+        for (let i = 0; i < bytes.byteLength; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        return window.btoa(binary);
+      };
+
+      // АВТОМАТИЧЕСКАЯ ОТПРАВКА ВСЕХ ФАЙЛОВ В GITHUB И ЗАПУСК СБОРКИ IPA ПРЯМО ИЗ БРАУЗЕРА
+      const pushToGitHubAndBuildIPA = async () => {
+        const cleanToken = ghToken.trim();
+        const cleanRepo = ghRepo.trim().replace(/[^a-zA-Z0-9-_]/g, '-') || 'nutricore-ios-app';
+
+        if (!cleanToken) {
+          setGhStatus('❌ Вставьте ваш GitHub Token! Нажмите кнопку «Получить токен в 1 клик» выше.');
+          return;
+        }
+        setGhLoading(true);
+        setGhActionsUrl('');
+        setGhStatus('⏳ Шаг 1/4: Подключаемся к вашему GitHub...');
+
+        try {
+          const headers = {
+            'Authorization': `Bearer ${cleanToken}`,
+            'Accept': 'application/vnd.github+json',
+            'Content-Type': 'application/json'
+          };
+
+          // 1. Получаем имя пользователя
+          const userRes = await fetch('https://api.github.com/user', { headers });
+          if (!userRes.ok) {
+            const errJson = await userRes.json().catch(() => ({}));
+            throw new Error(`Токен не подошел (${userRes.status}): ${errJson.message || 'Проверьте, что скопировали токен полностью (начинается на ghp_)'}`);
+          }
+          const userData = await userRes.json();
+          const owner = userData.login;
+
+          // 2. Проверяем или создаем репозиторий
+          setGhStatus(`⏳ Шаг 2/4: Подготавливаем репозиторий ${owner}/${cleanRepo}...`);
+          const checkRepo = await fetch(`https://api.github.com/repos/${owner}/${cleanRepo}`, { headers });
+          if (checkRepo.status === 404) {
+            const createRes = await fetch('https://api.github.com/user/repos', {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({
+                name: cleanRepo,
+                private: false,
+                auto_init: true,
+                description: 'NutriCore iOS App'
+              })
+            });
+            if (!createRes.ok) {
+              const cErr = await createRes.json().catch(() => ({}));
+              throw new Error(`Не удалось создать репозиторий: ${cErr.message || 'нет галочки repo у токена'}`);
+            }
+            // Ждем 2.5 секунды, пока GitHub создаст ветку main
+            await new Promise(r => setTimeout(r, 2500));
+          }
+
+          // Надежная функция загрузки файла через GitHub API
+          const uploadFile = async (path, contentStr) => {
+            const url = `https://api.github.com/repos/${owner}/${cleanRepo}/contents/${path}`;
+            let sha = undefined;
+            const existing = await fetch(url, { headers });
+            if (existing.ok) {
+              const exData = await existing.json();
+              sha = exData.sha;
+            }
+            const base64Content = utf8ToBase64(contentStr);
+            const putRes = await fetch(url, {
+              method: 'PUT',
+              headers,
+              body: JSON.stringify({
+                message: `Update ${path}`,
+                content: base64Content,
+                ...(sha ? { sha } : {})
+              })
+            });
+            if (!putRes.ok) {
+              const errData = await putRes.json().catch(() => ({}));
+              if (path.includes('.github/workflows')) {
+                throw new Error(`GitHub отклонил файл автосборки (${putRes.status}). Убедитесь, что у вашего токена стоит галочка "workflow"! (${errData.message || ''})`);
+              }
+              throw new Error(`Ошибка при загрузке ${path}: ${errData.message || putRes.status}`);
+            }
+          };
+
+          // 3. Загружаем файлы проекта
+          setGhStatus('⏳ Шаг 3/4: Отправляем код приложения и конфигурацию iOS...');
+          const scriptCode = document.querySelector('script[type="text/babel"]')?.innerHTML || '';
+          const cleanHtml = [
+            '<!DOCTYPE html>',
+            '<html lang="ru" class="dark">',
+            '<head>',
+            '  <meta charset="UTF-8" />',
+            '  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />',
+            '  <title>NutriCore</title>',
+            '  <script src="https://cdn.tailwindcss.com"><' + '/script>',
+            '  <script src="https://unpkg.com/react@18/umd/react.production.min.js"><' + '/script>',
+            '  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"><' + '/script>',
+            '  <script src="https://unpkg.com/@babel/standalone/babel.min.js"><' + '/script>',
+            '</head>',
+            '<body class="bg-[#09090B] text-zinc-100 min-h-screen">',
+            '  <div id="root"></div>',
+            '  <script type="text/babel">',
+            scriptCode,
+            '  <' + '/script>',
+            '</body>',
+            '</html>'
+          ].join('\n');
+
+          await uploadFile('dist/index.html', cleanHtml);
+
+          await uploadFile('capacitor.config.json', JSON.stringify({
+            appId: "com.nutricore.tracker",
+            appName: "NutriCore",
+            webDir: "dist",
+            server: { androidScheme: "https" }
+          }, null, 2));
+
+          await uploadFile('package.json', JSON.stringify({
+            name: "nutricore-app",
+            private: true,
+            version: "1.0.0",
+            dependencies: {
+              "@capacitor/core": "^5.7.0",
+              "@capacitor/ios": "^5.7.0",
+              "@capacitor/cli": "^5.7.0"
+            }
+          }, null, 2));
+
+          // 4. Загружаем workflow для автоматической компиляции IPA
+          setGhStatus('⏳ Шаг 4/4: Запускаем сборку NutriCore.ipa на сервере GitHub...');
+          const workflowYaml = [
+            'name: Build iOS IPA',
+            'on:',
+            '  push:',
+            '    branches: [ "main", "master" ]',
+            '  workflow_dispatch:',
+            'jobs:',
+            '  build-ios:',
+            '    runs-on: macos-latest',
+            '    steps:',
+            '      - name: Checkout',
+            '        uses: actions/checkout@v4',
+            '      - name: Setup Node',
+            '        uses: actions/setup-node@v4',
+            '        with:',
+            '          node-version: 18',
+            '      - name: Install Capacitor & Add iOS',
+            '        run: |',
+            '          npm install',
+            '          npx cap add ios || true',
+            '          npx cap sync ios',
+            '      - name: Build Unsigned iOS App',
+            '        run: |',
+            '          cd ios/App',
+            '          xcodebuild -workspace App.xcworkspace -scheme App -configuration Release -sdk iphoneos -derivedDataPath build CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO',
+            '      - name: Package IPA',
+            '        run: |',
+            '          mkdir -p Payload',
+            '          cp -r ios/App/build/Build/Products/Release-iphoneos/App.app Payload/',
+            '          zip -r NutriCore.ipa Payload',
+            '      - name: Upload Ready IPA',
+            '        uses: actions/upload-artifact@v4',
+            '        with:',
+            '          name: NutriCore-iOS-IPA',
+            '          path: NutriCore.ipa'
+          ].join('\n');
+
+          await uploadFile('.github/workflows/ios-build.yml', workflowYaml);
+
+          const actionsLink = `https://github.com/${owner}/${cleanRepo}/actions`;
+          setGhActionsUrl(actionsLink);
+          setGhStatus('✅ УСПЕШНО! Все файлы отправлены! Нажмите кнопку ниже, чтобы открыть сборку .IPA.');
+        } catch (err) {
+          setGhStatus('❌ Причина ошибки: ' + (err.message || 'Не удалось отправить файлы'));
+        } finally {
+          setGhLoading(false);
+        }
+      };
+
+      // Функция для прямого скачивания этого файла одним нажатием
+      const downloadSelfFile = () => {
+        try {
+          const fullHtml = "<!DOCTYPE html>\n" + document.documentElement.outerHTML;
+          const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'NutriCore_App.html';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          setCopiedMsg('✅ Файл NutriCore_App.html скачался! Откройте его в Загрузках.');
+          setTimeout(() => setCopiedMsg(''), 5000);
+        } catch (err) {
+          setCopiedMsg('Нажмите кнопку Копировать код рядом.');
+        }
+      };
+
+      // Функция для копирования кода в буфер обмена одной кнопкой
+      const copySelfCode = () => {
+        const fullHtml = "<!DOCTYPE html>\n" + document.documentElement.outerHTML;
+        const textarea = document.createElement('textarea');
+        textarea.value = fullHtml;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        setCopiedMsg('✅ Весь код приложения скопирован в буфер обмена!');
+        setTimeout(() => setCopiedMsg(''), 5000);
+      };
+
+      const totalWater = waterDrank + Math.round(stats.waterFromFood);
+      const waterTarget = 2500;
+      const waterPct = Math.min(100, Math.round((totalWater / waterTarget) * 100));
+
+      const categories = [
+        { id: 'fiber', title: 'Клетчатка и волокна' },
+        { id: 'vitamin', title: 'Витамины (Скурихин / USDA)' },
+        { id: 'mineral', title: 'Минералы и электролиты' },
+        { id: 'lipid', title: 'Жирные кислоты Омега' }
+      ];
+
+      return (
+        <div className="max-w-md mx-auto pb-24 px-3 pt-3 select-none">
+          {/* ПАНЕЛЬ БЫСТРОГО СКАЧИВАНИЯ И КОПИРОВАНИЯ ДЛЯ УСТАНОВКИ */}
+          <div className="bg-zinc-900 border border-[#22C55E]/50 rounded-2xl p-3 mb-4 shadow-lg">
+            <div className="text-xs font-bold text-white mb-2 flex items-center justify-between">
+              <span>📲 Установка на iPhone или авто-сборка IPA:</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <button
+                onClick={downloadSelfFile}
+                className="py-2.5 px-3 rounded-xl bg-[#22C55E] text-black font-extrabold text-xs hover:opacity-95 active:scale-95 transition flex items-center justify-center gap-1.5 shadow"
+              >
+                <span>⬇️ СКАЧАТЬ ФАЙЛ</span>
+              </button>
+              <button
+                onClick={copySelfCode}
+                className="py-2.5 px-3 rounded-xl bg-zinc-800 border border-zinc-700 text-white font-bold text-xs hover:bg-zinc-700 active:scale-95 transition flex items-center justify-center gap-1.5"
+              >
+                <span>📋 СКОПИРОВАТЬ КОД</span>
+              </button>
+            </div>
+            <button
+              onClick={() => setGhModalOpen(true)}
+              className="w-full py-2.5 px-3 rounded-xl bg-white text-black font-extrabold text-xs hover:bg-zinc-200 active:scale-95 transition flex items-center justify-center gap-1.5 shadow"
+            >
+              <span>🚀 АВТО-ОТПРАВКА В GITHUB И СБОРКА .IPA (В 1 КЛИК)</span>
+            </button>
+            {copiedMsg && (
+              <div className="mt-2 text-center text-xs font-semibold text-[#22C55E] bg-[#22C55E]/10 py-1.5 px-2 rounded-lg border border-[#22C55E]/30">
+                {copiedMsg}
+              </div>
+            )}
+          </div>
+
+          {/* МОДАЛЬНОЕ ОКНО АВТОМАТИЧЕСКОЙ ОТПРАВКИ В GITHUB */}
+          {ghModalOpen && (
+            <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-[#121215] border border-zinc-700 w-full max-w-md rounded-3xl p-4 space-y-3 text-xs">
+                <div className="flex items-center justify-between border-b border-zinc-800 pb-2.5">
+                  <h3 className="text-sm font-bold text-white">🚀 Авто-робот отправки в GitHub</h3>
+                  <button
+                    onClick={() => setGhModalOpen(false)}
+                    className="w-7 h-7 rounded-full bg-zinc-800 text-zinc-300 flex items-center justify-center"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-zinc-300 space-y-2 leading-relaxed">
+                  <div className="font-bold text-white">Чтобы не было «Ошибки отправки»:</div>
+                  <p>Токену на GitHub обязательно нужны 2 галочки: <b>repo</b> и <b>workflow</b>. Нажмите кнопку ниже — она сама откроет страницу создания правильного токена с нужными галочками:</p>
+                  <a
+                    href="https://github.com/settings/tokens/new?description=NutriCore_Builder&scopes=repo,workflow"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block w-full text-center py-2 px-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-[#22C55E]/50 text-[#22C55E] font-bold transition"
+                  >
+                    🔑 1. Нажмите сюда: Получить правильный токен на GitHub
+                  </a>
+                  <div className="text-[11px] text-zinc-400">
+                    *(На открывшейся странице GitHub просто прокрутите вниз, нажмите зеленую кнопку <b>Generate token</b> и скопируйте код `ghp_...`)*
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-zinc-400 mb-1">2. Вставьте скопированный токен сюда:</label>
+                  <input
+                    type="password"
+                    value={ghToken}
+                    onChange={e => setGhToken(e.target.value)}
+                    placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                    className="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white focus:outline-none focus:border-[#22C55E]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-zinc-400 mb-1">Название создаваемого репозитория:</label>
+                  <input
+                    type="text"
+                    value={ghRepo}
+                    onChange={e => setGhRepo(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-700 text-white"
+                  />
+                </div>
+
+                {ghStatus && (
+                  <div className="p-3 rounded-xl bg-zinc-900 border border-zinc-700 text-zinc-200 font-medium break-words">
+                    {ghStatus}
+                    {ghActionsUrl && (
+                      <a
+                        href={ghActionsUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block mt-2 text-center py-2 px-3 rounded-lg bg-[#22C55E] text-black font-bold underline"
+                      >
+                        👉 Открыть страницу скачивания .IPA на GitHub
+                      </a>
+                    )}
+                  </div>
+                )}
+
+                <button
+                  onClick={pushToGitHubAndBuildIPA}
+                  disabled={ghLoading}
+                  className="w-full py-3 rounded-xl bg-[#22C55E] text-black font-extrabold text-xs hover:opacity-95 active:scale-95 transition disabled:opacity-50"
+                >
+                  {ghLoading ? '⏳ Выполняется авто-загрузка...' : '🚀 ОТПРАВИТЬ ВСЕ ФАЙЛЫ И СОБРАТЬ .IPA'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ВЕРХНЯЯ ШАПКА */}
+          <header className="flex items-center justify-between mb-4 border-b border-zinc-800 pb-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-[#22C55E]"></span>
+                <h1 className="text-lg font-bold tracking-tight text-white">NUTRICORE</h1>
+                <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700">
+                  USDA + Скурихин
+                </span>
+              </div>
+              <p className="text-xs text-zinc-500 mt-0.5">Учет КБЖУ, воды и микронутриентов</p>
+            </div>
+            <button
+              onClick={() => { setSelectedMeal('snack'); setModalOpen(true); }}
+              className="px-3 py-2 rounded-xl bg-white text-black font-semibold text-xs hover:bg-zinc-200 active:scale-95 transition flex items-center gap-1.5"
+            >
+              <span>＋ Продукт / Штрихкод</span>
+            </button>
+          </header>
+
+          {/* БЛОК 1: СВОДКА КБЖУ И КЛЕТЧАТКИ */}
+          <section className="bg-[#121215] border border-zinc-800/90 rounded-2xl p-4 mb-3 shadow-lg">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <span className="text-xs uppercase tracking-wider text-zinc-500">Калории за день</span>
+                <div className="flex items-baseline gap-1.5 mt-0.5">
+                  <span className="text-2xl font-extrabold text-white">{Math.round(stats.kcal)}</span>
+                  <span className="text-xs text-zinc-500">/ 2000 ккал</span>
+                </div>
+              </div>
+              <div className="text-right">
+                <span className="text-xs text-zinc-400">Остаток: </span>
+                <span className="text-sm font-bold text-white">{Math.max(0, 2000 - Math.round(stats.kcal))} ккал</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-4 gap-2 pt-2 border-t border-zinc-800/80">
+              {[
+                { label: 'Белки', val: stats.protein, target: 110, unit: 'г' },
+                { label: 'Жиры', val: stats.fat, target: 70, unit: 'г' },
+                { label: 'Углеводы', val: stats.carbs, target: 200, unit: 'г' },
+                { label: 'Клетчатка', val: stats.nutTotals.fiber || 0, target: 30, unit: 'г', highlight: true }
+              ].map((m, idx) => {
+                const pct = Math.min(100, Math.round((m.val / m.target) * 100));
+                const isNorm = pct >= 75;
+                return (
+                  <div key={idx} className="bg-zinc-900/90 border border-zinc-800/80 rounded-xl p-2">
+                    <div className="text-[11px] text-zinc-400 truncate">{m.label}</div>
+                    <div className="text-xs font-bold text-white mt-0.5">
+                      {m.val.toFixed(1)} <span className="text-[10px] font-normal text-zinc-500">/ {m.target}{m.unit}</span>
+                    </div>
+                    <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden mt-1.5">
+                      <div
+                        className={`h-full transition-all ${isNorm ? 'bg-[#22C55E]' : 'bg-zinc-400'}`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* БЛОК 2: УЧЕТ ВОДЫ (ВЫПИТАЯ + ПОЛУЧЕННАЯ ИЗ ЕДЫ) */}
+          <section className="bg-[#121215] border border-zinc-800/90 rounded-2xl p-4 mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-white">💧 Гидратация (Вода)</span>
+                  <span className={`text-[11px] px-2 py-0.5 rounded-full border font-semibold ${
+                    waterPct >= 80
+                      ? 'bg-[#22C55E]/20 text-[#22C55E] border-[#22C55E]/40'
+                      : 'bg-zinc-800 text-zinc-300 border-zinc-700'
+                  }`}>
+                    {waterPct}%
+                  </span>
+                </div>
+                <p className="text-[11px] text-zinc-400 mt-0.5">
+                  Выпито: <strong className="text-white">{waterDrank} мл</strong> + Из пищи: <strong className="text-[#22C55E]">{Math.round(stats.waterFromFood)} мл</strong>
+                </p>
+              </div>
+              <div className="text-right">
+                <div className="text-base font-extrabold text-white">{totalWater} <span className="text-xs font-normal text-zinc-500">/ {waterTarget} мл</span></div>
+              </div>
+            </div>
+
+            <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden mb-3">
+              <div
+                className={`h-full transition-all ${waterPct >= 80 ? 'bg-[#22C55E]' : 'bg-zinc-300'}`}
+                style={{ width: `${waterPct}%` }}
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setWaterDrank(w => Math.max(0, w - 250))}
+                className="px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs text-zinc-300 active:scale-95"
+              >
+                −250 мл
+              </button>
+              <button
+                onClick={() => setWaterDrank(w => w + 250)}
+                className="flex-1 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-white active:scale-95"
+              >
+                + Стакан (250 мл)
+              </button>
+              <button
+                onClick={() => setWaterDrank(w => w + 500)}
+                className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-white active:scale-95"
+              >
+                +500 мл
+              </button>
+            </div>
+          </section>
+
+          {/* БЛОК 3: ЛЕГЕНДА ЦВЕТОВ И ФИЛЬТР НУТРИЕНТОВ */}
+          <section className="mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-sm font-bold uppercase tracking-wider text-zinc-300">
+                Нутриенты (нажмите на строку)
+              </h2>
+              <div className="flex gap-1">
+                {[
+                  { id: 'all', label: 'Все' },
+                  { id: 'deficit', label: 'Дефициты' },
+                  { id: 'warning', label: 'Крит. / Перебор' }
+                ].map(f => (
+                  <button
+                    key={f.id}
+                    onClick={() => setFilterMode(f.id)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition ${
+                      filterMode === f.id
+                        ? 'bg-white text-black font-semibold'
+                        : 'bg-zinc-900 text-zinc-400 border border-zinc-800'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Памятка по цветам */}
+            <div className="flex flex-wrap items-center gap-3 text-[11px] text-zinc-400 bg-zinc-900/60 border border-zinc-800/80 rounded-xl px-3 py-2 mb-3">
+              <span className="flex items-center gap-1.5"><i className="w-2 h-2 rounded-full bg-zinc-500"></i> Серый: набор</span>
+              <span className="flex items-center gap-1.5"><i className="w-2 h-2 rounded-full bg-[#22C55E]"></i> Зеленый: норма</span>
+              <span className="flex items-center gap-1.5"><i className="w-2 h-2 rounded-full bg-[#EAB308]"></i> Желтый: у макс. порога</span>
+              <span className="flex items-center gap-1.5"><i className="w-2 h-2 rounded-full bg-[#EF4444]"></i> Красный: перебор</span>
+            </div>
+
+            {/* СПИСОК НУТРИЕНТОВ СТРОЧКАМИ С ВЫПАДАЮЩИМ СПИСКОМ */}
+            <div className="space-y-3">
+              {categories.map(cat => {
+                const items = NUTRIENT_DEFS.filter(n => n.category === cat.id).filter(n => {
+                  const st = getNutrientStatus(n, stats.nutTotals[n.id] || 0);
+                  if (filterMode === 'deficit') return st.code === 'building';
+                  if (filterMode === 'warning') return st.code === 'warning' || st.code === 'excess';
+                  return true;
+                });
+
+                if (items.length === 0) return null;
+                const isCatOpen = expandedCategories[cat.id];
+
+                return (
+                  <div key={cat.id} className="bg-[#121215] border border-zinc-800 rounded-2xl overflow-hidden">
+                    <button
+                      onClick={() => setExpandedCategories(prev => ({ ...prev, [cat.id]: !prev[cat.id] }))}
+                      className="w-full flex items-center justify-between px-4 py-3 bg-zinc-900/70 border-b border-zinc-800/80 text-left"
+                    >
+                      <span className="text-xs font-bold uppercase tracking-wider text-zinc-200">{cat.title}</span>
+                      <span className="text-xs text-zinc-400">{isCatOpen ? '▲ Свернуть' : '▼ Развернуть'}</span>
+                    </button>
+
+                    {isCatOpen && (
+                      <div className="divide-y divide-zinc-800/70">
+                        {items.map(n => {
+                          const val = stats.nutTotals[n.id] || 0;
+                          const st = getNutrientStatus(n, val);
+                          const isOpen = expandedNutrient === n.id;
+                          const sources = stats.nutSources[n.id] || [];
+                          const barWidth = Math.min(100, Math.round(st.pctRda));
+
+                          // Лучшие продукты для добора дефицита
+                          const topFoodsToFill = FOODS_DB
+                            .filter(f => f.nutrients && f.nutrients[n.id] > 0)
+                            .sort((a, b) => (b.nutrients[n.id] || 0) - (a.nutrients[n.id] || 0))
+                            .slice(0, 2);
+
+                          return (
+                            <div key={n.id} className="transition-colors">
+                              {/* СТРОЧКА НУТРИЕНТА С ПРОЦЕНТАМИ */}
+                              <button
+                                onClick={() => setExpandedNutrient(isOpen ? null : n.id)}
+                                className="w-full px-3.5 py-2.5 flex items-center justify-between gap-2 hover:bg-zinc-900/50 active:bg-zinc-900 text-left"
+                              >
+                                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                  <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${st.dot}`} />
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-xs font-semibold text-zinc-100 truncate">{n.name}</span>
+                                      <span className="text-[10px] text-zinc-500">({sources.length} ист.)</span>
+                                    </div>
+                                    <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden mt-1">
+                                      <div className={`h-full ${st.bar}`} style={{ width: `${barWidth}%` }} />
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <div className="text-right">
+                                    <div className="text-xs font-medium text-zinc-300">
+                                      {val.toFixed(1)} <span className="text-zinc-500">/ {n.rda} {n.unit}</span>
+                                    </div>
+                                  </div>
+                                  <span className={`px-2 py-0.5 text-xs font-bold rounded-lg border min-w-[48px] text-center ${st.badge}`}>
+                                    {Math.round(st.pctRda)}%
+                                  </span>
+                                  <span className="text-zinc-500 text-xs">{isOpen ? '▲' : '▼'}</span>
+                                </div>
+                              </button>
+
+                              {/* ВЫПАДАЮЩИЙ СПИСОК ПРИ НАЖАТИИ НА СТРОЧКУ */}
+                              {isOpen && (
+                                <div className="px-4 py-3 bg-zinc-950/90 border-t border-zinc-800/80 text-xs space-y-3">
+                                  <div className="flex items-center justify-between text-zinc-400">
+                                    <span>{n.desc}</span>
+                                    <span className={`font-semibold ${st.text}`}>Статус: {st.label}</span>
+                                  </div>
+
+                                  {/* Предупреждение о верхнем пределе UL */}
+                                  {n.ul && (
+                                    <div className="p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-between">
+                                      <span className="text-zinc-400">Безопасный верхний порог (UL):</span>
+                                      <span className={`font-bold ${val > n.ul ? 'text-[#EF4444]' : st.code === 'warning' ? 'text-[#EAB308]' : 'text-zinc-200'}`}>
+                                        {val.toFixed(1)} из {n.ul} {n.unit} ({Math.round((val / n.ul) * 100)}% от макс.)
+                                      </span>
+                                    </div>
+                                  )}
+
+                                  {/* Из каких съеденных продуктов получен нутриент */}
+                                  <div>
+                                    <div className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 mb-1.5">
+                                      Получено сегодня из продуктов:
+                                    </div>
+                                    {sources.length === 0 ? (
+                                      <div className="text-zinc-500 italic">Сегодня еще не поступал с пищей.</div>
+                                    ) : (
+                                      <div className="space-y-1.5">
+                                        {sources.map((s, i) => (
+                                          <div key={i} className="flex items-center justify-between bg-zinc-900/80 px-2.5 py-1.5 rounded-lg border border-zinc-800/70">
+                                            <div>
+                                              <div className="text-zinc-200 font-medium">{s.foodName}</div>
+                                              <div className="text-[10px] text-zinc-500">
+                                                {s.grams} г • {s.cookingName}
+                                              </div>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                              <span className="font-bold text-white">
+                                                +{s.amount.toFixed(1)} {n.unit} ({Math.round((s.amount / n.rda) * 100)}%)
+                                              </span>
+                                              <button
+                                                onClick={() => removeEntry(s.entryId)}
+                                                className="text-zinc-500 hover:text-[#EF4444] px-1"
+                                                title="Удалить из дневника"
+                                              >
+                                                ✕
+                                              </button>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Быстрый добор, если нутриента не хватает */}
+                                  {st.pctRda < 100 && topFoodsToFill.length > 0 && (
+                                    <div className="pt-1">
+                                      <div className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 mb-1.5">
+                                        Чем закрыть дефицит в 1 нажатие:
+                                      </div>
+                                      <div className="grid grid-cols-1 gap-1.5">
+                                        {topFoodsToFill.map(food => (
+                                          <div key={food.id} className="flex items-center justify-between bg-zinc-900 px-2.5 py-1.5 rounded-lg border border-zinc-800">
+                                            <div>
+                                              <div className="text-zinc-200 font-medium">{food.name}</div>
+                                              <div className="text-[10px] text-zinc-400">
+                                                На 100г: +{food.nutrients[n.id]} {n.unit} ({Math.round((food.nutrients[n.id] / n.rda) * 100)}% нормы)
+                                              </div>
+                                            </div>
+                                            <button
+                                              onClick={() => addEntry(food.id, food.portions?.[0]?.grams || 100, 'raw', 'snack')}
+                                              className="px-2.5 py-1 rounded-lg bg-white text-black font-semibold text-[11px] active:scale-95"
+                                            >
+                                              + {food.portions?.[0]?.grams || 100}г
+                                            </button>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* БЛОК 4: ДНЕВНИК ПИТАНИЯ ПО ПРИЕМАМ ПИЩИ */}
+          <section className="space-y-2.5">
+            <h2 className="text-sm font-bold uppercase tracking-wider text-zinc-300">Дневник питания</h2>
+            {MEALS.map(m => {
+              const items = diary.filter(d => d.meal === m.id);
+              return (
+                <div key={m.id} className="bg-[#121215] border border-zinc-800 rounded-2xl p-3.5">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-bold uppercase tracking-wider text-white">{m.title}</span>
+                    <button
+                      onClick={() => { setSelectedMeal(m.id); setModalOpen(true); }}
+                      className="text-xs font-semibold text-zinc-300 bg-zinc-800 px-2.5 py-1 rounded-lg hover:bg-zinc-700"
+                    >
+                      + Добавить
+                    </button>
+                  </div>
+                  {items.length === 0 ? (
+                    <p className="text-xs text-zinc-600">Пока пусто</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {items.map(entry => {
+                        const food = FOODS_DB.find(f => f.id === entry.foodId);
+                        if (!food) return null;
+                        const ratio = entry.grams / 100;
+                        return (
+                          <div key={entry.id} className="flex items-center justify-between text-xs bg-zinc-900/70 px-3 py-2 rounded-xl border border-zinc-800/70">
+                            <div>
+                              <div className="font-semibold text-zinc-100">{food.name}</div>
+                              <div className="text-[10px] text-zinc-400">
+                                {entry.grams} г • {Math.round(food.kcal * ratio)} ккал • Вода: {Math.round((food.water_g || 0) * ratio)} мл
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => removeEntry(entry.id)}
+                              className="text-zinc-500 hover:text-[#EF4444] p-1"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </section>
+
+          {/* МОДАЛЬНОЕ ОКНО ДОБАВЛЕНИЯ ПРОДУКТА И СКАНЕРА */}
+          {modalOpen && (
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+              <div className="bg-[#121215] border-t sm:border border-zinc-800 w-full max-w-md rounded-t-3xl sm:rounded-3xl p-4 max-h-[88vh] overflow-y-auto safe-bottom">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-bold text-white">Добавить продукт в дневник</h3>
+                  <button
+                    onClick={() => { setModalOpen(false); setSelectedFood(null); }}
+                    className="w-7 h-7 rounded-full bg-zinc-800 text-zinc-300 flex items-center justify-center text-sm"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {!selectedFood ? (
+                  <>
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={e => setSearchQuery(e.target.value)}
+                      placeholder="Поиск по названию или штрихкоду..."
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-xs text-white mb-3 focus:outline-none focus:border-white"
+                    />
+                    <div className="space-y-2">
+                      {FOODS_DB.filter(f =>
+                        f.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                        (f.barcode && f.barcode.includes(searchQuery))
+                      ).map(food => (
+                        <button
+                          key={food.id}
+                          onClick={() => {
+                            setSelectedFood(food);
+                            setInputGrams(food.portions?.[0]?.grams || 100);
+                            setInputCooking('raw');
+                          }}
+                          className="w-full text-left p-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 transition flex items-center justify-between"
+                        >
+                          <div>
+                            <div className="text-xs font-bold text-white">{food.name}</div>
+                            <div className="text-[10px] text-zinc-400 mt-0.5">
+                              {food.kcal} ккал • Б:{food.protein} Ж:{food.fat} У:{food.carbs} • Вода: {food.water_g}г
+                            </div>
+                            <div className="text-[10px] text-[#22C55E] mt-0.5">
+                              ✨ Микронутриенты: {food.mappedFrom}
+                            </div>
+                          </div>
+                          <span className="text-xs text-zinc-400">＋</span>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <div className="space-y-3 text-xs">
+                    <div className="p-3 rounded-xl bg-zinc-900 border border-zinc-800">
+                      <div className="font-bold text-white text-sm">{selectedFood.name}</div>
+                      <div className="text-[11px] text-zinc-400 mt-0.5">
+                        Эталон микронутриентов: <span className="text-zinc-200">{selectedFood.mappedFrom}</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-zinc-400 mb-1">Быстрые порции:</label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(selectedFood.portions || []).map((p, i) => (
+                          <button
+                            key={i}
+                            onClick={() => setInputGrams(p.grams)}
+                            className={`px-2.5 py-1.5 rounded-lg border ${
+                              inputGrams === p.grams ? 'bg-white text-black font-bold border-white' : 'bg-zinc-900 text-zinc-300 border-zinc-700'
+                            }`}
+                          >
+                            {p.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-zinc-400 mb-1">Вес в граммах:</label>
+                      <input
+                        type="number"
+                        value={inputGrams}
+                        onChange={e => setInputGrams(Number(e.target.value))}
+                        className="w-full px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-700 text-white font-bold"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-zinc-400 mb-1">Термообработка (влияет на сохранность витаминов):</label>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {COOKING_METHODS.map(c => (
+                          <button
+                            key={c.id}
+                            onClick={() => setInputCooking(c.id)}
+                            className={`px-2.5 py-1.5 rounded-lg border text-left ${
+                              inputCooking === c.id ? 'bg-white text-black font-semibold border-white' : 'bg-zinc-900 text-zinc-300 border-zinc-800'
+                            }`}
+                          >
+                            {c.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2 pt-2">
+                      <button
+                        onClick={() => setSelectedFood(null)}
+                        className="px-4 py-2.5 rounded-xl bg-zinc-800 text-zinc-300 font-semibold"
+                      >
+                        Назад
+                      </button>
+                      <button
+                        onClick={() => addEntry(selectedFood.id, inputGrams, inputCooking, selectedMeal)}
+                        className="flex-1 py-2.5 rounded-xl bg-[#22C55E] text-black font-bold"
+                      >
+                        Добавить в дневник
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  
+  </script>
+</body>
+</html>
