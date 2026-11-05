@@ -1,0 +1,10 @@
+{
+  "name": "nutricore-app",
+  "private": true,
+  "version": "1.0.0",
+  "dependencies": {
+    "@capacitor/core": "^5.7.0",
+    "@capacitor/ios": "^5.7.0",
+    "@capacitor/cli": "^5.7.0"
+  }
+}
