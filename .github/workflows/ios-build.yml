@@ -1,0 +1,34 @@
+name: Build iOS IPA
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+      - name: Install Capacitor & Add iOS
+        run: |
+          npm install
+          npx cap add ios || true
+          npx cap sync ios
+      - name: Build Unsigned iOS App
+        run: |
+          cd ios/App
+          xcodebuild -workspace App.xcworkspace -scheme App -configuration Release -sdk iphoneos -derivedDataPath build CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
+      - name: Package IPA
+        run: |
+          mkdir -p Payload
+          cp -r ios/App/build/Build/Products/Release-iphoneos/App.app Payload/
+          zip -r NutriCore.ipa Payload
+      - name: Upload Ready IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: NutriCore-iOS-IPA
+          path: NutriCore.ipa
